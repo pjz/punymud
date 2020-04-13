@@ -20,10 +20,9 @@ world = False
 AUTHOR = "Jose Nazario"
 VERSION = "1.1.1"
 
-BANNER = (
-    """
+BANNER = f"""
 
-                 This is PunyMUD version %s
+                 This is PunyMUD version {VERSION}
 
              Copyright (C) 2007 by Jose Nazario
              Released under an Artistic License
@@ -33,8 +32,6 @@ BANNER = (
 
 
 Login> """
-    % VERSION
-)
 
 HELP = """
 ===========================================================================
@@ -60,7 +57,8 @@ OLC
 ===========================================================================
 """
 
-sys.modules['mud'] = sys.modules[__name__]
+sys.modules["mud"] = sys.modules[__name__]
+
 
 class Obj(object):
     def __init__(self, name, location):
@@ -70,7 +68,7 @@ class Obj(object):
         self.description = None
 
     def __repr__(self):
-        return "Object: %s (id %s)" % (self.name, self.oid)
+        return f"Object: {self.name} (id {self.oid})"
 
 
 class Room(Obj):
@@ -79,11 +77,8 @@ class Room(Obj):
         self.name = name
 
     def __repr__(self):
-        return "Room: %s (id %s) - exits %s" % (
-            self.name,
-            self.oid,
-            "|".join(self.exits.keys()),
-        )
+        exits = "|".join(self.exits.keys())
+        return f"Room: {self.name} (id {self.oid}) - exits {exits}"
 
 
 class Player(Obj):
@@ -94,11 +89,11 @@ class Player(Obj):
         self.location = 1
 
     def __repr__(self):
-        return "Player: %s (id %s) - at %s" % (self.name, self.oid, self.location)
+        return f"Player: {self.name} (id {self.oid}) - at {self.location}"
 
     def sendto(self, s):
         if getattr(self, "sock", False):
-            self.sock.send(f'{s}\n'.encode('utf8'))
+            self.sock.send(f"{s}\n".encode("utf8"))
 
     def parse(self, m):
         m = m.strip()
@@ -110,7 +105,8 @@ class Player(Obj):
         except IndexError:
             cmd = m
             arg = False
-        if cmd.lower() in [x.lower() for x in world.find_by_oid(self.location).exits.keys()]:
+        exits = [x.lower() for x in world.find_by_oid(self.location).exits.keys()]
+        if cmd.lower() in exits:
             self.location = world.find_by_oid(self.location).exits[cmd].oid
             self.parse("look")
         elif cmd.startswith("q"):
@@ -127,25 +123,25 @@ class Player(Obj):
                 self.parse("help")
             d = world.find_player_by_name(arg)
             if d and rand.random() < 0.3:
-                world.global_message("%s kills %s" % (self.name, d.name))
+                world.global_message(f"{self.name} kills {d.name}")
                 d.sock = None
                 world.delete(d)
                 world.save()
             else:
-                world.global_message("%s misses" % self.name)
+                world.global_message(f"{self.name} misses")
         elif cmd.startswith("s"):
             if arg:
-                self.sendto(' You say "%s"' % arg)
+                self.sendto(f' You say "{arg}"')
             else:
                 self.sendto(" Did you mean to say something?")
             for x in world.other_players_at_location(self.location, self.oid):
-                x.sendto(' %s says "%s"' % (self.name, arg))
+                x.sendto(' {self.name} says "{arg}"')
         elif cmd.startswith("c"):
             if arg:
-                self.sendto(' You chat, "%s"' % arg)
+                self.sendto(f' You chat, "{arg}"')
             else:
                 self.sendto(" Did you mean to say something?")
-            world.global_message_others('%s chats, "%s"' % (self.name, arg), self.oid)
+            world.global_message_others(f'{self.name} chats, "{arg}"', self.oid)
         elif cmd.startswith("g"):
             for q in world.objects_at_location(self.location):
                 q.location = self.oid
@@ -168,11 +164,11 @@ class Player(Obj):
                     if getattr(o, "description", False):
                         self.sendto(o.description)
                     else:
-                        self.sendto("It's just a %s" % o.name)
+                        self.sendto(f"It's just a {o.name}")
                     found = True
             if not found:
                 if arg:
-                    self.sendto("No object %s found" % arg)
+                    self.sendto(f"No object {arg} found")
                 else:
                     self.parse("help")
         elif cmd == "O":
@@ -181,7 +177,7 @@ class Player(Obj):
             try:
                 o = Obj(arg.strip(), self.location)
                 world.add(o)
-                self.sendto("Created object %s" % o.oid)
+                self.sendto(f"Created object {o.oid}")
                 world.save()
             except AttributeError:
                 self.parse("help")
@@ -205,7 +201,7 @@ class Player(Obj):
                 world.save()
                 self.sendto("Ok")
             elif oid:
-                self.sendto("Object %s not found" % oid)
+                self.sendto(f"Object {oid} not found")
         elif cmd == "R":
             if not arg:
                 self.parse("help")
@@ -223,18 +219,18 @@ class Player(Obj):
                 self.sendto("Ok")
                 world.save()
         elif cmd.startswith("l"):
-            self.sendto("Room: %s" % world.find_by_oid(self.location).name)
+            self.sendto("Room: " + world.find_by_oid(self.location).name)
             if getattr(world.find_by_oid(self.location), "description", False):
                 self.sendto(world.find_by_oid(self.location).description)
             self.sendto("Players:")
             for x in world.other_players_at_location(self.location, self.oid):
                 if getattr(x, "sock", False):
-                    self.sendto("%s is here" % x.name)
+                    self.sendto(f"{x.name} is here")
             self.sendto("Objects:")
             for x in world.objects_at_location(self.location):
-                self.sendto("A %s is here" % x.name)
+                self.sendto(f"A {x.name} is here")
             self.sendto(
-                "Exits: %s" % " | ".join(world.find_by_oid(self.location).exits.keys())
+                "Exits: " + " | ".join(world.find_by_oid(self.location).exits.keys())
             )
         elif not len(world.find_by_oid(self.location).exits.keys()):
             self.parse("look")
@@ -314,7 +310,7 @@ class World(object):
             try:
                 plr.sendto(msg)
             except:
-                print('Error sending "%s" to %s' % (msg, plr.name))
+                print(f'Error sending "{msg}" to {plr.name}')
 
     def global_message_others(self, msg, plrid):
         for plr in self.other_players_at_location(None, plrid):
@@ -323,8 +319,11 @@ class World(object):
     def objects_at_location(self, loc):
         l = []
         for o in self.db:
-            if (isinstance(o, Obj) and not isinstance(o, Room)
-                    and not isinstance(o, Player)):
+            if (
+                isinstance(o, Obj)
+                and not isinstance(o, Room)
+                and not isinstance(o, Player)
+            ):
                 if loc and o.location == loc:
                     l.append(o)
                 elif not loc:
@@ -340,8 +339,8 @@ class World(object):
 
 class MudHandler(BaseRequestHandler):
     def setup(self):
-        self.request.send(BANNER.encode('utf8'))
-        login_name = self.request.recv(1024).strip().decode('utf8')
+        self.request.send(BANNER.encode("utf8"))
+        login_name = self.request.recv(1024).strip().decode("utf8")
         if len(login_name) < 1:
             self.setup()
         d = world.find_player_by_name(login_name)
@@ -350,14 +349,14 @@ class MudHandler(BaseRequestHandler):
         else:
             d = Player(login_name, self.request)
             world.add(d)
-        d.sendto("Welcome %s @ %s" % (d.name, self.client_address[0]))
+        d.sendto(f"Welcome {d.name} @ {self.client_address[0]}")
         r = "look"
         while r:
             d.parse(r)
             if not getattr(d, "sock", False):
                 break
             d.sock.send(b"> ")
-            r = self.request.recv(1024).decode('utf8')
+            r = self.request.recv(1024).decode("utf8")
         self.finish()
 
 
@@ -374,7 +373,7 @@ def main():
             try:
                 plr.parse("quit")
             except:
-                print("ERROR: %s could not quit gracefully" % plr.name)
+                print(f"ERROR: {plr.name} could not quit gracefully")
         z.server_close()
     world.save()
 
