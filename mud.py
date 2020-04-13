@@ -10,7 +10,9 @@ import re
 import sys
 import signal
 import random
-from socketserver import ThreadingTCPServer, BaseRequestHandler
+import traceback
+from collections import namedtuple
+from socketserver import ThreadingTCPServer, StreamRequestHandler
 
 import yaml
 
@@ -82,18 +84,18 @@ class Room(Obj):
 
 
 class Player(Obj):
-    def __init__(self, name, sock=None):
-        if sock:
-            self.sock = sock
+    def __init__(self, name, io=None):
+        if io:
+            self.io = io
         self.name = name
         self.location = 1
 
     def __repr__(self):
         return f"Player: {self.name} (id {self.oid}) - at {self.location}"
 
-    def sendto(self, s):
-        if getattr(self, "sock", False):
-            self.sock.send(f"{s}\n".encode("utf8"))
+    def sendto(self, s, end='\n'):
+        if getattr(self, "io", False):
+            self.io.wfile.write(f"{s}{end}".encode("utf8"))
 
     def parse(self, m):
         m = m.strip()
@@ -111,7 +113,8 @@ class Player(Obj):
             self.parse("look")
         elif cmd.startswith("q"):
             self.sendto("Bye bye!")
-            del self.sock
+            if hasattr(self, 'io'):
+                del self.io
             world.save()
         elif cmd.lower().startswith("h") or cmd.startswith("?"):
             self.sendto(HELP)
@@ -124,7 +127,7 @@ class Player(Obj):
             d = world.find_player_by_name(arg)
             if d and rand.random() < 0.3:
                 world.global_message(f"{self.name} kills {d.name}")
-                d.sock = None
+                d.io = None
                 world.delete(d)
                 world.save()
             else:
@@ -224,7 +227,7 @@ class Player(Obj):
                 self.sendto(world.find_by_oid(self.location).description)
             self.sendto("Players:")
             for x in world.other_players_at_location(self.location, self.oid):
-                if getattr(x, "sock", False):
+                if getattr(x, "io", False):
                     self.sendto(f"{x.name} is here")
             self.sendto("Objects:")
             for x in world.objects_at_location(self.location):
@@ -286,24 +289,19 @@ class World(object):
                 return o
 
     def players_at_location(self, loc):
-        l = []
-        for o in self.db:
-            if isinstance(o, Player):
-                if loc and o.location == loc:
-                    l.append(o)
-                else:
-                    l.append(o)
-        return l
+        if not loc:
+            in_loc = lambda o: True
+        else:
+            in_loc = lambda o: o.location == loc
+        return [o for o in self.db if isinstance(o, Player) and in_loc(o)]
 
     def other_players_at_location(self, loc, plrid):
-        l = []
-        for o in self.db:
-            if isinstance(o, Player) and o.oid != plrid:
-                if loc and o.location == loc:
-                    l.append(o)
-                elif not loc:
-                    l.append(o)
-        return l
+        if not loc:
+            in_loc = lambda o: True
+        else:
+            in_loc = lambda o: o.location == loc
+        return [o for o in self.db if isinstance(o, Player) and in_loc(o) and o.oid != plrid]
+
 
     def global_message(self, msg):
         for plr in self.players_at_location(None):
@@ -317,47 +315,53 @@ class World(object):
             plr.sendto(msg)
 
     def objects_at_location(self, loc):
-        l = []
-        for o in self.db:
-            if (
-                isinstance(o, Obj)
-                and not isinstance(o, Room)
-                and not isinstance(o, Player)
-            ):
-                if loc and o.location == loc:
-                    l.append(o)
-                elif not loc:
-                    l.append(o)
-        return l
-
+        if not loc:
+            in_loc = lambda o: True
+        else:
+            in_loc = lambda o: o.location == loc
+        is_obj = lambda o: (
+            isinstance(o, Obj)
+            and not isinstance(o, Room)
+            and not isinstance(o, Player)
+            )
+        return [o for o in self.db if is_obj(o) and in_loc(o)]
+ 
     def find_by_oid(self, i):
         for x in self.db:
             if x.oid == i:
                 return x
         return None
 
+Handles = namedtuple('Handles', 'rfile wfile')
 
-class MudHandler(BaseRequestHandler):
-    def setup(self):
-        self.request.send(BANNER.encode("utf8"))
-        login_name = self.request.recv(1024).strip().decode("utf8")
+class MudHandler(StreamRequestHandler):
+
+    def _readline(self):
+        return self.rfile.readline().decode('utf8')
+
+    def _write(self, s):
+        self.wfile.write(s.encode('utf8'))
+
+    def handle(self):
+        self._write(BANNER)
+        login_name = self._readline().strip()
         if len(login_name) < 1:
             self.setup()
+        io = Handles(self.rfile, self.wfile)
         d = world.find_player_by_name(login_name)
         if d:
-            d.sock = self.request
+            d.io = io
         else:
-            d = Player(login_name, self.request)
+            d = Player(login_name, io)
             world.add(d)
-        d.sendto(f"Welcome {d.name} @ {self.client_address[0]}")
+        self._write(f"Welcome {d.name} @ {self.client_address[0]}")
         r = "look"
         while r:
             d.parse(r)
-            if not getattr(d, "sock", False):
+            if not getattr(d, "io", False):
                 break
-            d.sock.send(b"> ")
-            r = self.request.recv(1024).decode("utf8")
-        self.finish()
+            self._write("> ")
+            r = self._readline()
 
 
 def main():
@@ -372,8 +376,9 @@ def main():
         for plr in world.players_at_location(None):
             try:
                 plr.parse("quit")
-            except:
-                print(f"ERROR: {plr.name} could not quit gracefully")
+            except Exception as e:
+                print(f"ERROR: {plr.name} could not quit gracefully: {e!r}")
+                traceback.print_exc()
         z.server_close()
     world.save()
 
