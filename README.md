@@ -18,9 +18,9 @@ You can find the source at https://github.com/paralax/punymud
 
 Required
 
-- Python 2.3 or later
+- Python 3.7 or later
   http://www.python.org/
-  This software was developed on OS X and may not work on Windows
+  This software was developed on OS X and Linux and may not work on Windows
 
 - PyYAML
   http://pyyaml.org/wiki/PyYAMLDocumentation
